@@ -189,14 +189,13 @@ public abstract class MimeTypeUtils {
 	 * @throws InvalidMimeTypeException if the string cannot be parsed
 	 */
 	public static MimeType parseMimeType(String mimeType) {
+		if (!StringUtils.hasLength(mimeType)) {
+			throw new InvalidMimeTypeException(mimeType, "'mimeType' must not be empty");
+		}
 		return cachedMimeTypes.get(mimeType);
 	}
 
 	private static MimeType parseMimeTypeInternal(String mimeType) {
-		if (!StringUtils.hasLength(mimeType)) {
-			throw new InvalidMimeTypeException(mimeType, "'mimeType' must not be empty");
-		}
-
 		int index = mimeType.indexOf(';');
 		String fullType = (index >= 0 ? mimeType.substring(0, index) : mimeType).trim();
 		if (fullType.isEmpty()) {
@@ -433,7 +432,13 @@ public abstract class MimeTypeUtils {
 		public V get(K key) {
 			this.lock.readLock().lock();
 			try {
-				if (this.queue.remove(key)) {
+				if (this.queue.size() < this.maxSize / 2) {
+					V cached = this.cache.get(key);
+					if (cached != null) {
+						return cached;
+					}
+				}
+				else if (this.queue.remove(key)) {
 					this.queue.add(key);
 					return this.cache.get(key);
 				}
@@ -443,6 +448,11 @@ public abstract class MimeTypeUtils {
 			}
 			this.lock.writeLock().lock();
 			try {
+				// retrying in case of concurrent reads on the same key
+				if (this.queue.remove(key)) {
+					this.queue.add(key);
+					return this.cache.get(key);
+				}
 				if (this.queue.size() == this.maxSize) {
 					K leastUsed = this.queue.poll();
 					if (leastUsed != null) {

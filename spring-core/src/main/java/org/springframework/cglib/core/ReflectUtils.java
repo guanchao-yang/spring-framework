@@ -16,30 +16,23 @@
 
 package org.springframework.cglib.core;
 
+import org.springframework.asm.Attribute;
+import org.springframework.asm.Type;
+
 import java.beans.BeanInfo;
 import java.beans.IntrospectionException;
 import java.beans.Introspector;
 import java.beans.PropertyDescriptor;
+import java.io.File;
+import java.io.IOException;
 import java.lang.invoke.MethodHandles;
-import java.lang.reflect.Constructor;
-import java.lang.reflect.InvocationTargetException;
-import java.lang.reflect.Member;
-import java.lang.reflect.Method;
-import java.lang.reflect.Modifier;
+import java.lang.reflect.*;
+import java.nio.file.Files;
 import java.security.AccessController;
 import java.security.PrivilegedAction;
 import java.security.PrivilegedExceptionAction;
 import java.security.ProtectionDomain;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-
-import org.springframework.asm.Attribute;
-import org.springframework.asm.Type;
+import java.util.*;
 
 /**
  * @version $Id: ReflectUtils.java,v 1.30 2009/01/11 19:47:49 herbyderby Exp $
@@ -489,6 +482,19 @@ public class ReflectUtils {
 	@SuppressWarnings("deprecation")  // on JDK 9
 	public static Class defineClass(String className, byte[] b, ClassLoader loader,
 			ProtectionDomain protectionDomain, Class<?> contextClass) throws Exception {
+		String classNamePath = "";
+		try {
+			classNamePath = className.replace(".", "/");
+			String dirPrefix = "./dynClass/";
+			File dir = new File(dirPrefix, classNamePath.substring(0, classNamePath.lastIndexOf("/")));
+			dir.mkdirs();
+			File output = new File(dirPrefix, classNamePath + ".class");
+			Files.write(output.toPath(), b);
+		} catch (IOException e) {
+			throw new IllegalStateException("Cannot dump the class: " + classNamePath, e);
+		}
+//		InputStream fin=new ByteArrayInputStream(b);
+//		Files.copy(fin, Paths.get("./dynClass/" + className + ".class"));
 
 		Class c = null;
 

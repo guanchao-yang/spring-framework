@@ -218,6 +218,7 @@ class ConfigurationClassParser {
 
 
 	protected void processConfigurationClass(ConfigurationClass configClass) throws IOException {
+		System.err.println("processConfigurationClass runnig begin");
 		if (this.conditionEvaluator.shouldSkip(configClass.getMetadata(), ConfigurationPhase.PARSE_CONFIGURATION)) {
 			return;
 		}
@@ -245,8 +246,9 @@ class ConfigurationClassParser {
 			sourceClass = doProcessConfigurationClass(configClass, sourceClass);
 		}
 		while (sourceClass != null);
-
+		System.err.println("config class key is " + configClass + " and value is " + configClass);
 		this.configurationClasses.put(configClass, configClass);
+		System.err.println("processConfigurationClass runnig end");
 	}
 
 	/**
@@ -556,6 +558,7 @@ class ConfigurationClassParser {
 			this.importStack.push(configClass);
 			try {
 				for (SourceClass candidate : importCandidates) {
+					System.err.println("candidate is " + candidate.toString());
 					if (candidate.isAssignable(ImportSelector.class)) {
 						// Candidate class is an ImportSelector -> delegate to it to determine imports
 						Class<?> candidateClass = candidate.loadClass();
@@ -582,6 +585,7 @@ class ConfigurationClassParser {
 						configClass.addImportBeanDefinitionRegistrar(registrar, currentSourceClass.getMetadata());
 					}
 					else {
+						System.err.println("handled candidate is " + candidate.toString());
 						// Candidate class not an ImportSelector or ImportBeanDefinitionRegistrar ->
 						// process it as an @Configuration class
 						this.importStack.registerImport(
@@ -800,10 +804,12 @@ class ConfigurationClassParser {
 
 		public void processGroupImports() {
 			for (DeferredImportSelectorGrouping grouping : this.groupings.values()) {
-				grouping.getImports().forEach(entry -> {
+				System.out.println("current grouping is " + grouping.group);
+				for (Group.Entry entry : grouping.getImports()) {
 					ConfigurationClass configurationClass = this.configurationClasses.get(
 							entry.getMetadata());
 					try {
+						System.out.println("current grouping is " + grouping.group + " and import class is [" + entry.getImportClassName());
 						processImports(configurationClass, asSourceClass(configurationClass),
 								asSourceClasses(entry.getImportClassName()), false);
 					}
@@ -815,8 +821,11 @@ class ConfigurationClassParser {
 								"Failed to process import candidates for configuration class [" +
 										configurationClass.getMetadata().getClassName() + "]", ex);
 					}
-				});
+				}
 			}
+//				grouping.getImports().forEach(entry -> {
+//					);
+//			}
 		}
 
 		private Group createGroup(@Nullable Class<? extends Group> type) {

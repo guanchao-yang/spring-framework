@@ -30,6 +30,7 @@ import reactor.core.publisher.Mono;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.core.ReactiveAdapterRegistry;
 import org.springframework.lang.Nullable;
+import org.springframework.messaging.rsocket.annotation.support.RSocketMessageHandler;
 import org.springframework.util.MimeType;
 
 /**
@@ -66,13 +67,24 @@ public interface RSocketRequester {
 
 
 	/**
-	 * Begin to specify a new request with the given route to a handler on the
-	 * remote side. The route will be encoded in the metadata of the first
-	 * payload.
+	 * Begin to specify a new request with the given route to a remote handler.
+	 * <p>If the connection is set to use composite metadata, the route is
+	 * encoded as {@code "message/x.rsocket.routing.v0"}. Otherwise the route
+	 * is encoded according to the mime type for the connection.
 	 * @param route the route to a handler
 	 * @return a spec for further defining and executing the request
 	 */
 	RequestSpec route(String route);
+
+	/**
+	 * Begin to specify a new request with the given metadata.
+	 * <p>If using composite metadata then the mime type argument is required.
+	 * Otherwise the mime type should be {@code null}, or it must match the
+	 * mime type for the connection.
+	 * @param metadata the metadata value to encode
+	 * @param mimeType the mime type that describes the metadata;
+	 */
+	RequestSpec metadata(Object metadata, @Nullable MimeType mimeType);
 
 
 	/**
@@ -109,24 +121,24 @@ public interface RSocketRequester {
 	interface Builder {
 
 		/**
-		 * Configure the MimeType to use for payload data. This is then
-		 * specified on the {@code SETUP} frame for the whole connection.
-		 * <p>By default this is set to the first concrete MimeType supported
+		 * Configure the MimeType for payload data which is then specified
+		 * on the {@code SETUP} frame and applies to the whole connection.
+		 * <p>By default this is set to the first concrete mime type supported
 		 * by the configured encoders and decoders.
 		 * @param mimeType the data MimeType to use
 		 */
 		RSocketRequester.Builder dataMimeType(@Nullable MimeType mimeType);
 
 		/**
-		 * Configure the MimeType to use for payload metadata. This is then
-		 * specified on the {@code SETUP} frame for the whole connection.
-		 * <p>At present the metadata MimeType must be
-		 * {@code "message/x.rsocket.routing.v0"} to allow the request
-		 * {@link RSocketRequester#route(String) route} to be encoded, or it
-		 * could also be {@code "message/x.rsocket.composite-metadata.v0"} in
-		 * which case the route can be encoded along with other metadata entries.
+		 * Configure the MimeType for payload metadata which is then specified
+		 * on the {@code SETUP} frame and applies to the whole connection.
 		 * <p>By default this is set to
-		 * {@code "message/x.rsocket.composite-metadata.v0"}.
+		 * {@code "message/x.rsocket.composite-metadata.v0"} in which case the
+		 * route, if provided, is encoded as a
+		 * {@code "message/x.rsocket.routing.v0"} metadata entry, potentially
+		 * with other metadata entries added too. If this is set to any other
+		 * mime type, and a route is provided, it is assumed the mime type is
+		 * for the route.
 		 * @param mimeType the data MimeType to use
 		 */
 		RSocketRequester.Builder metadataMimeType(MimeType mimeType);
@@ -157,6 +169,17 @@ public interface RSocketRequester {
 		 * @param configurer the configurer to apply
 		 */
 		RSocketRequester.Builder rsocketStrategies(Consumer<RSocketStrategies.Builder> configurer);
+
+		/**
+		 * Add handlers for processing requests sent by the server.
+		 * <p>This is a shortcut for registering client handlers (i.e. annotated controllers)
+		 * to a {@link RSocketMessageHandler} and configuring it as an acceptor.
+		 * You can take full control by manually registering an acceptor on the
+		 * {@link RSocketFactory.ClientRSocketFactory} using {@link #rsocketFactory(Consumer)}
+		 * instead.
+		 * @param handlers the client handlers to configure on the requester
+		 */
+		RSocketRequester.Builder annotatedHandlers(Object... handlers);
 
 		/**
 		 * Connect to the RSocket server over TCP.
@@ -200,41 +223,41 @@ public interface RSocketRequester {
 		RequestSpec metadata(Object metadata, MimeType mimeType);
 
 		/**
-		 * Provide request payload data. The given Object may be a synchronous
-		 * value, or a {@link Publisher} of values, or another async type that's
-		 * registered in the configured {@link ReactiveAdapterRegistry}.
-		 * <p>For multi-valued Publishers, prefer using
-		 * {@link #data(Publisher, Class)} or
-		 * {@link #data(Publisher, ParameterizedTypeReference)} since that makes
-		 * it possible to find a compatible {@code Encoder} up front vs looking
-		 * it up on every value.
+		 * Provide payload data. The data can be one of the following:
+		 * <ul>
+		 * <li>Concrete value
+		 * <li>{@link Publisher} of value(s)
+		 * <li>Any other producer of value(s) that can be adapted to a
+		 * {@link Publisher} via {@link ReactiveAdapterRegistry}
+		 * </ul>
 		 * @param data the Object to use for payload data
 		 * @return spec for declaring the expected response
 		 */
 		ResponseSpec data(Object data);
 
 		/**
-		 * Provide a {@link Publisher} of value(s) for request payload data.
-		 * <p>Publisher semantics determined through the configured
-		 * {@link ReactiveAdapterRegistry} influence which of the 4 RSocket
-		 * interactions to use. Publishers with unknown semantics are treated
-		 * as multi-valued. Consider registering a reactive type adapter, or
-		 * passing {@code Mono.from(publisher)}.
-		 * <p>If the publisher completes empty, possibly {@code Publisher<Void>},
-		 * the request will have an empty data Payload.
-		 * @param publisher source of payload data value(s)
-		 * @param dataType the type of values to be published
-		 * @param <T> the type of element values
-		 * @param <P> the type of publisher
+		 * Alternative of {@link #data(Object)} that accepts not only a producer
+		 * of value(s) but also a hint for the types of values that will be
+		 * produced. The class hint is used to find a compatible {@code Encoder}
+		 * once, up front, and used for all values.
+		 * @param producer the source of payload data value(s). This must be a
+		 * {@link Publisher} or another producer adaptable to a
+		 * {@code Publisher} via {@link ReactiveAdapterRegistry}
+		 * @param elementType the type of values to be produced
 		 * @return spec for declaring the expected response
 		 */
-		<T, P extends Publisher<T>> ResponseSpec data(P publisher, Class<T> dataType);
+		ResponseSpec data(Object producer, Class<?> elementType);
 
 		/**
-		 * Variant of {@link #data(Publisher, Class)} for when the dataType has
-		 * to have a generic type. See {@link ParameterizedTypeReference}.
+		 * Alternative of {@link #data(Object, Class)} but with a
+		 * {@link ParameterizedTypeReference} hint which can provide generic
+		 * type information.
+		 * @param producer the source of payload data value(s). This must be a
+		 * {@link Publisher} or another producer adaptable to a
+		 * {@code Publisher} via {@link ReactiveAdapterRegistry}
+		 * @param elementTypeRef the type of values to be produced
 		 */
-		<T, P extends Publisher<T>> ResponseSpec data(P publisher, ParameterizedTypeReference<T> dataTypeRef);
+		ResponseSpec data(Object producer, ParameterizedTypeReference<?> elementTypeRef);
 	}
 
 
